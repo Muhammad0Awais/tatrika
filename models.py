@@ -13,6 +13,7 @@ class Customer(Base):
     phone_number = Column(String)
     current_state = Column(String)
     default_state = Column(String, default="UndefinedKoala")
+    last_sended_message_id = Column(Integer)
 
 
 engine = create_engine("sqlite:///prodb.db")

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+from os import stat
 from aiogram import Bot, types
 from variables import *
 from models import *
@@ -29,8 +30,32 @@ default_keyboards = {
     "UndefinedKoala": phone_request_keyboard,
 }
 
+async def get_event_type(event): 
+    pass
 
-async def get_user_state(message):
+
+async def get_user_state_from_inline_commands(message):
+    session = Session()
+    print(message)
+    customer = (
+        session.query(Customer)
+        .filter(Customer.id == message["message"]["chat"]["id"])
+        .first()
+    )
+    if customer:
+        return customer.current_state
+    else:
+        customer = Customer(
+            id=message["from"]["id"],
+            username=message["from"]["username"],
+            current_state="UndefinedKoala",
+        )
+        session.add(customer)
+        session.commit()
+        return "UndefinedKoala"
+
+
+async def get_user_state_from_text_commands(message):
     session = Session()
     print(message)
     customer = (
@@ -53,7 +78,10 @@ class BaseState:
     @staticmethod
     async def send_default_keyboard(alert, message=None):
         message.answer(
-            alert, reply_markup=default_keyboards[get_user_state(message["chat"]["id"])]
+            alert,
+            reply_markup=default_keyboards[
+                get_user_state_from_text_commands(message["chat"]["id"])
+            ],
         )
 
     @staticmethod
@@ -64,6 +92,63 @@ class BaseState:
         )
         customer.current_state = ""
 
+    
+    @staticmethod
+    async def send_onboarding_request(message):
+        await asyncio.sleep(1.5)
+        last_message = await message.answer(
+            "⚠️ Хочешь я тебе расскажу, из чего состоит бот и как им пользоваться?",
+            reply_markup=onboarding_request_keyboard,
+        )
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["message"]["chat"]["id"]).first()
+        )
+        customer.last_sended_message_id = last_message
+
+    @staticmethod
+    async def accept_onboarding_request(message):
+        print(15)
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["message"]["chat"]["id"]).first()
+        )
+        customer.current_state = "OnboardingState"
+        session.commit()
+        await OnboardingState.start(message)
+
+
+class OnboardingState:
+    @staticmethod
+    async def commands_handler(message):
+        try: 
+            if message["id"]:
+                command = message["data"]
+        except KeyError as error: 
+            pass 
+        try:
+            if message["message_id"]: 
+                command = message["text"]
+        except KeyError as error:
+            pass 
+        try:
+            await OnboardingState_commands[command](message)
+        except KeyError as error:
+            await message.answer("Команда не найдена")
+
+    @staticmethod
+    async def start(message):
+        await message.edit("У нас есть раздел", reply_markup=next_prev_onboarding_keyboard)
+
+    @staticmethod 
+    async def next_onboarding_step(message): 
+        pass 
+
+
+    @staticmethod
+    async def prev_onboarding_step(message): 
+        pass
+
 
 class GameState:
     pass
@@ -73,11 +158,21 @@ class EducationState:
     pass
 
 
-class UndefinedKoala:
+class UndefinedKoala(BaseState):
     @staticmethod
     async def commands_handler(message):
+        try: 
+            if message["id"]:
+                command = message["data"]
+        except KeyError as error: 
+            pass 
         try:
-            await UndefinedKoala_commands[message.text](message)
+            if message["message_id"]: 
+                command = message["text"]
+        except KeyError as error:
+            pass 
+        try:
+            await UndefinedKoala_commands[command](message)
         except KeyError as error:
             await message.answer("Команда не найдена")
 
@@ -106,9 +201,9 @@ class UndefinedKoala:
                 session.commit()
                 await message.answer(
                     "Ура! 🎊 Теперь тебе доступны все возможности авторизованных пользователей.",
-                    reply_markup=user_main_menu_keyboard,
+                    reply_markup=empty_keyboard,
                 )
-                await User.send_onboarding_message_request(message)
+                await User.send_onboarding_request(message)
         else:
             await message.answer(
                 "Делишься номером ещё до того, как тебя попросили об этом???\n\nНу и прекрасно!"
@@ -124,51 +219,61 @@ class UndefinedKoala:
     @staticmethod
     async def cancel_phone_request(message):
         await message.answer(
-            "Хорошо, но если всё же захочешь поделиться номером телефона, у тебя будет такая возможность.",
-            reply_markup=user_main_menu_keyboard,
+            "Хорошо, но если всё же захочешь поделиться номером телефона, это всегда можно будет сделать в разделе Настройки.",
+            reply_markup=empty_keyboard,
         )
-        await UndefinedKoala.send_onboarding_message_request(message)
-
-    @staticmethod
-    async def send_onboarding_message_request(message): 
-        await message.answer("Хочешь я тебе расскажу, из чего состоит бот и как им пользоваться?", reply_markup=onboarding_request_keyboard)
-
-
-class OnboardingState: 
-    @staticmethod
-    async def first_step(message): 
-        pass
-
-
-class User(UndefinedKoala):
+        await UndefinedKoala.send_onboarding_request(message)
+class User(BaseState):
     @staticmethod
     async def commands_handler(message):
+        try: 
+            if message["id"]:
+                command = message["data"]
+        except KeyError as error: 
+            pass 
         try:
-            await User_commands[message.text](message)
+            if message["message_id"]: 
+                command = message["text"]
         except KeyError as error:
-            await message.answer("Команда не найдена")
+            pass 
+        try:
+            print(command)
+            await User_commands[command](message)
+        except Exception as error:
+            await message.answer(error)
+
 
     @staticmethod
-    async def start(message): 
+    async def start(message):
         await message.answer(
             "👋 Привет! \n\nЭто Tatrika — бот, с помощью которого ты сможешь изучать татарский язык, тратя всего 15 минут в день!\n\nПроходи мини-уроки, соревнуйся вместе с друзьями в играх, а если возникли вопросы, смело задавай их своему наставнику."
         )
 
-    @staticmethod
-    async def send_onboarding_message_request(message): 
-        await message.answer("Хочешь я тебе расскажу, из чего состоит бот и как им пользоваться?", reply_markup=onboarding_request_keyboard)
+OnboardingState_commands = {
+    "next_onboarding_step": OnboardingState.next_onboarding_step, 
+    "prev_onboarding_step": OnboardingState.prev_onboarding_step
+}
 
 
 UndefinedKoala_commands = {
     "/start": UndefinedKoala.start,
     "Не хочу": UndefinedKoala.cancel_phone_request,
+    "accept_onboarding_request": BaseState.accept_onboarding_request,
 }
 
-User_commands = {}
+User_commands = {
+    "/start": User.start,
+    "accept_onboarding_request": BaseState.accept_onboarding_request,
+    "Изучать": 0,
+    "Играть": 0,
+    "Задать вопрос": 0,
+    "Настройки": 0,
+}
 
 states = {
     "UndefinedKoala": UndefinedKoala,
     "EducationState": EducationState,
+    "OnboardingState": OnboardingState,
     "User": User,
 }
 
@@ -178,15 +283,20 @@ dp = Dispatcher(bot)
 
 
 @dp.message_handler()
-async def commands_handler(message):
-    user_state = await get_user_state(message)
-    print(user_state, 11010)
+async def text_commands_handler(message):
+    user_state = await get_user_state_from_text_commands(message)
+    await states[user_state].commands_handler(message)
+
+
+@dp.callback_query_handler()
+async def inline_commands_handler(message):
+    user_state = await get_user_state_from_inline_commands(message)
     await states[user_state].commands_handler(message)
 
 
 @dp.message_handler(content_types=["contact"])
 async def get_contact(message):
-    user_state = await get_user_state(message)
+    user_state = await get_user_state_from_text_commands(message)
     await states[user_state].auth_with_phone(message)
 
 
