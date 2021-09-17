@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from os import stat
 from aiogram import Bot, types
+from requests import check_compatibility
 from variables import *
 from models import *
 from sqlalchemy.ext.declarative import declarative_base
@@ -26,7 +27,7 @@ engine = create_engine("sqlite:///prodb.db")
 Session.configure(bind=engine)
 
 default_keyboards = {
-    "User": user_main_menu_keyboard,
+    "User": UndefinedKoala_keyboard,
     "UndefinedKoala": phone_request_keyboard,
 }
 
@@ -37,7 +38,6 @@ async def get_event_type(event):
 
 async def get_user_state_from_inline_commands(message):
     session = Session()
-    print(message)
     customer = (
         session.query(Customer)
         .filter(Customer.id == message["message"]["chat"]["id"])
@@ -58,7 +58,6 @@ async def get_user_state_from_inline_commands(message):
 
 async def get_user_state_from_text_commands(message):
     session = Session()
-    print(message)
     customer = (
         session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
     )
@@ -75,26 +74,79 @@ async def get_user_state_from_text_commands(message):
         return "UndefinedKoala"
 
 
-class BaseState:
+class LKState:
     @staticmethod
-    async def send_default_keyboard(alert, message=None):
-        message.answer(
-            alert,
-            reply_markup=default_keyboards[
-                get_user_state_from_text_commands(message["chat"]["id"])
-            ],
-        )
-
-    @staticmethod
-    async def set_default_state(message):
+    async def start(message):
         session = Session()
         customer = (
             session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
         )
-        customer.current_state = ""
+        customer.current_state = "LKState"
+        session.commit()
+        if customer.phone_number:
+            await message.answer(
+                "Перейди по ссылке [ссылка], авторизуйся и введи код, который придёт тебе в этом чате"
+            )
+        else:
+            await UndefinedKoala.send_phone_request(message)
 
 
-class OnboardingState:
+class MentoringState:
+    @staticmethod
+    async def commands_handler(message):
+        await MentoringState.check_question(message)
+
+    @staticmethod
+    async def start(message):
+        await message.answer(
+            f"⚠ Напиши свой вопрос в чат, и наши наставники постараются как можно скорее ответить на твой вопрос!\n\nНе забудь, вопросы должны быть связаны с учебным материалом или играми, а также длина вопроса не должна быть больше {suitable_question_length} символов."
+        )
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
+        )
+        customer.current_state = "MentoringState"
+        session.commit()
+
+    @staticmethod
+    async def check_question(message):
+        if len(message.text) <= suitable_question_length:
+            await message.answer(
+                f"✅ Вопрос успешно задан! Как только на него ответит наставник, мы сразу же пришлём уведомление."
+            )
+            session = Session()
+            question = Question(customer_id=message["chat"]["id"], text=message.text)
+            customer = (
+                session.query(Customer)
+                .filter(Customer.id == message["chat"]["id"])
+                .first()
+            )
+            customer.current_state = customer.default_state
+            session.add(question)
+            session.commit()
+
+        else:
+            await message.answer(
+                f"⚠ Длина вопроса получилась больше, чем {suitable_question_length}. Сократи вопрос и напиши его снова."
+            )
+
+
+class BaseState:
+    @staticmethod
+    async def exit(message):
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
+        )
+        customer.current_state = customer.default_state
+        session.commit()
+        await message.answer(
+            "Ты вернулся на начальный экран.",
+            reply_markup=keyboards[await get_user_state_from_text_commands(message)],
+        )
+
+
+class OnboardingState(BaseState):
     @staticmethod
     async def commands_handler(message):
         try:
@@ -110,37 +162,36 @@ class OnboardingState:
         try:
             await OnboardingState_commands[command](message)
         except KeyError as error:
-            await message.answer("Команда не найдена")
+            await message.answer(
+                f"Команда {command} не найдена, введи /exit, чтобы вернуться на начальный экран."
+            )
 
     @staticmethod
     async def send_onboarding_step(message):
-        print(message, "тимур")
         session = Session()
         customer = (
             session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
         )
-        await bot.edit_message_text(
-            onboarding_steps[customer.onboarding_page],
-            customer.id,
-            customer.last_sended_message_id,
-        )
-        if customer.onboarding_page == 1:
-            await bot.edit_message_reply_markup(
+        if 1 <= customer.onboarding_page <= 4:
+            await bot.edit_message_text(
+                onboarding_steps[customer.onboarding_page],
                 customer.id,
                 customer.last_sended_message_id,
-                reply_markup=first_onboarding_step_keyboard,
             )
-        elif 1 <= customer.onboarding_page < 5:
-            print("PIZDEC")
-            await bot.edit_message_reply_markup(
-                customer.id,
-                customer.last_sended_message_id,
-                reply_markup=next_prev_onboarding_keyboard,
-            )
+            if customer.onboarding_page == 1:
+                await bot.edit_message_reply_markup(
+                    customer.id,
+                    customer.last_sended_message_id,
+                    reply_markup=first_onboarding_step_keyboard,
+                )
+            else:
+                await bot.edit_message_reply_markup(
+                    customer.id,
+                    customer.last_sended_message_id,
+                    reply_markup=next_prev_onboarding_keyboard,
+                )
         elif customer.onboarding_page == 5:
-            await bot.edit_message_reply_markup(
-                customer.id, customer.last_sended_message_id
-            )
+            await bot.delete_message(customer.id, customer.last_sended_message_id)
             await OnboardingState.exit_onboarding_state(message)
 
     @staticmethod
@@ -149,7 +200,7 @@ class OnboardingState:
         customer = (
             session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
         )
-        if customer.onboarding_page <= 5:
+        if customer.onboarding_page <= 4:
             customer.onboarding_page += 1
             session.commit()
             await OnboardingState.send_onboarding_step(message)
@@ -167,18 +218,17 @@ class OnboardingState:
 
     @staticmethod
     async def exit_onboarding_state(message):
-        print("ewe")
         session = Session()
         customer = (
             session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
         )
-        customer.state = "UndefinedKoala"
+        customer.current_state = "UndefinedKoala"
         customer.onboarding_page = 1
         session.commit()
         await bot.send_message(
             customer.id,
-            "Вжух! И магическая клавиатура, о которой я говорил, открылась перед тобой только что!",
-            reply_markup=user_main_menu_keyboard,
+            "✅ Отлично!\n\nМы рассказали тебе об всём, что знаем о боте, а если что-то пропустили — не беда! Всегда интереснее исследовать что-то самому, без посторонней помощи 😉",
+            reply_markup=UndefinedKoala_keyboard,
         )
 
 
@@ -206,7 +256,9 @@ class UndefinedKoala(BaseState):
         try:
             await UndefinedKoala_commands[command](message)
         except KeyError as error:
-            await message.answer("Команда не найдена")
+            await message.answer(
+                f"Команда {command} не найдена, введи /exit, чтобы вернуться на начальный экран."
+            )
 
     @staticmethod
     async def send_onboarding_request(message):
@@ -224,11 +276,19 @@ class UndefinedKoala(BaseState):
 
     @staticmethod
     async def cancel_onboarding_request(message):
-        pass
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
+        )
+        await bot.delete_message(customer.id, customer.last_sended_message_id)
+        await bot.send_message(
+            message["from"]["id"],
+            "Хорошо, но если у тебя возникнут вопросы по работе с ботом, можешь пройти обучение по команде /edu или задать вопрос своему наставнику.",
+            reply_markup=UndefinedKoala_keyboard,
+        )
 
     @staticmethod
     async def accept_onboarding_request(message):
-        print(15)
         session = Session()
         customer = (
             session.query(Customer)
@@ -260,21 +320,21 @@ class UndefinedKoala(BaseState):
                 )
             else:
                 customer.phone_number = message.contact.phone_number
-                customer.current_state = "User"
                 session.commit()
                 await message.answer(
-                    "Ура! 🎊 Теперь тебе доступны все возможности авторизованных пользователей.",
-                    reply_markup=empty_keyboard,
+                    "✅ Теперь тебе доступны все возможности авторизованных пользователей.",
+                    reply_markup=UndefinedKoala_keyboard,
                 )
+                await LKState.start(message)
         else:
             await message.answer(
                 "Делишься номером ещё до того, как тебя попросили об этом???\n\nНу и прекрасно!"
             )
 
     @staticmethod
-    async def send_phone_request_message(message):
+    async def send_phone_request(message):
         await message.answer(
-            "Поделись номером телефона, чтобы получить доступ к личному кабинету на сайте.\n\nЗачем мне нужен личный кабинет?\n✳ Отслеживать собственный прогресс в изучении татарского языка.\n\nЕсли не хочешь, этот шаг можно пропустить.",
+            "Поделись номером телефона, чтобы получить доступ к личному кабинету на сайте.\n\nЗачем мне нужен личный кабинет?\n✳ Отслеживать собственный прогресс в изучении татарского языка.\n\n",
             reply_markup=phone_request_keyboard,
         )
 
@@ -285,60 +345,6 @@ class UndefinedKoala(BaseState):
             reply_markup=empty_keyboard,
         )
         await UndefinedKoala.send_onboarding_request(message)
-
-
-class User(BaseState):
-    @staticmethod
-    async def commands_handler(message):
-        try:
-            if message["id"]:
-                command = message["data"]
-        except KeyError as error:
-            pass
-        try:
-            if message["message_id"]:
-                command = message["text"]
-        except KeyError as error:
-            pass
-        try:
-            print(command)
-            await User_commands[command](message)
-        except Exception as error:
-            await message.answer(error)
-
-    @staticmethod
-    async def start(message):
-        await message.answer(
-            "👋 Привет! \n\nЭто Tatrika — бот, с помощью которого ты сможешь изучать татарский язык, тратя всего 15 минут в день!\n\nПроходи мини-уроки, соревнуйся вместе с друзьями в играх, а если возникли вопросы, смело задавай их своему наставнику."
-        )
-
-
-OnboardingState_commands = {
-    "next_onboarding_step": OnboardingState.set_next_onboarding_step,
-    "prev_onboarding_step": OnboardingState.set_prev_onboarding_step,
-}
-
-
-UndefinedKoala_commands = {
-    "/start": UndefinedKoala.start,
-    "accept_onboarding_request": UndefinedKoala.accept_onboarding_request,
-    "cancel_onboarding_request": UndefinedKoala.cancel_onboarding_request,
-}
-
-User_commands = {
-    "/start": User.start,
-    "Изучать": 0,
-    "Играть": 0,
-    "Задать вопрос": 0,
-    "Настройки": 0,
-}
-
-states = {
-    "UndefinedKoala": UndefinedKoala,
-    "EducationState": EducationState,
-    "OnboardingState": OnboardingState,
-    "User": User,
-}
 
 
 bot = Bot(token=TOKEN)
@@ -361,6 +367,47 @@ async def inline_commands_handler(message):
 async def get_contact(message):
     user_state = await get_user_state_from_text_commands(message)
     await states[user_state].auth_with_phone(message)
+
+
+onboarding_steps = {
+    1: "😉 Отлично!\n\nСейчас я расскажу, из чего состоит бот и как им пользоваться.\n\nДля навигации используй кнопки < и >.",
+    2: "(1/3) Наш бот состоит из 4 разделов.\n\n- Изучать",
+    3: "(2/3)",
+    4: "(3/3)",
+}
+
+OnboardingState_commands = {
+    "next_onboarding_step": OnboardingState.set_next_onboarding_step,
+    "prev_onboarding_step": OnboardingState.set_prev_onboarding_step,
+    "/exit": BaseState.exit,
+}
+
+
+UndefinedKoala_commands = {
+    "/start": UndefinedKoala.start,
+    "accept_onboarding_request": UndefinedKoala.accept_onboarding_request,
+    "cancel_onboarding_request": UndefinedKoala.cancel_onboarding_request,
+    "Изучать": 0,
+    "Играть": 0,
+    "Задать вопрос": MentoringState.start,
+    "Личный кабинет": LKState.start,
+    "/exit": BaseState.exit,
+}
+
+
+states = {
+    "UndefinedKoala": UndefinedKoala,
+    "EducationState": EducationState,
+    "OnboardingState": OnboardingState,
+    "MentoringState": MentoringState,
+    "LKState": LKState,
+}
+
+
+keyboards = {"UndefinedKoala": UndefinedKoala_keyboard}
+
+
+suitable_question_length = 140
 
 
 if __name__ == "__main__":

@@ -13,26 +13,27 @@ phone_request_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 phone_request_keyboard.add(phone_request_button, cancel_phone_request_button)
 
 
-user_main_menu_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+UndefinedKoala_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
 start_education_state_button = KeyboardButton("Изучать")
 start_game_state_button = KeyboardButton("Играть")
 start_mentoring_state_button = KeyboardButton("Задать вопрос")
-user_main_menu_keyboard.add(start_education_state_button)
-user_main_menu_keyboard.row()
-user_main_menu_keyboard.add(start_game_state_button)
-user_main_menu_keyboard.row()
-user_main_menu_keyboard.add(start_mentoring_state_button)
+start_lk_state_button = KeyboardButton("Личный кабинет")
+UndefinedKoala_keyboard.add(start_education_state_button)
+UndefinedKoala_keyboard.row()
+UndefinedKoala_keyboard.add(start_game_state_button)
+UndefinedKoala_keyboard.row()
+UndefinedKoala_keyboard.add(start_mentoring_state_button, start_lk_state_button)
 
 
 accept_onboarding_request_button = InlineKeyboardButton(
     "Хочу", callback_data="accept_onboarding_request"
 )
-dicline_onboarding_request_button = InlineKeyboardButton(
+cancel_onboarding_request_button = InlineKeyboardButton(
     "Пропустить", callback_data="cancel_onboarding_request"
 )
 onboarding_request_keyboard = InlineKeyboardMarkup()
 onboarding_request_keyboard.add(
-    accept_onboarding_request_button, dicline_onboarding_request_button
+    accept_onboarding_request_button, cancel_onboarding_request_button
 )
 
 first_onboarding_step_keyboard = InlineKeyboardMarkup()
