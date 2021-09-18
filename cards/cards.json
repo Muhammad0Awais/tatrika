@@ -1,0 +1,38 @@
+[
+    {
+        "id": 1,
+        "image_source": "cards\\1.png", 
+        "text": "огурец",
+        "correct_answer": "кыяр"
+    }, 
+    {
+        "id": 2,
+        "image_source": "cards\\2.png", 
+        "text": "дыня",
+        "correct_answer": "кавын"
+    }, 
+    {
+        "id": 3,
+        "image_source": "cards\\3.png", 
+        "text": "перец",
+        "correct_answer": "борыч"
+    }, 
+    {
+        "id": 4,
+        "image_source": "cards\\4.png", 
+        "text": "капуста",
+        "correct_answer": "кәбестә"
+    }, 
+    {
+        "id": 5,
+        "image_source": "cards\\5.png", 
+        "text": "лук",
+        "correct_answer": "суган"
+    }, 
+    {
+        "id": 6,
+        "image_source": "cards\\6.png", 
+        "text": "чеснок",
+        "correct_answer": "сарымсак"
+    }
+]

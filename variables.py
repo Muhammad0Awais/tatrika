@@ -1,2 +1,1 @@
-from bot import OnboardingState, UndefinedKoala, MentoringState, EducationState, LKState, BaseState
-from keyboards import *
+all_answers = ['борчак', 'ташкабак', 'кәбестә', 'бәрәңге', 'җүгер', 'суган', 'кишер', 'кыяр', 'борыч', 'помидор', 'төрепчә', 'торма', 'шалкан', 'чөгендер', 'кабак', 'сарымсак']

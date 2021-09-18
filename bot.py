@@ -12,8 +12,10 @@ from aiogram.utils import executor
 from aiogram.types import reply_keyboard
 from aiogram.types.message import Message
 from random import choice
+from json import *
 from keyboards import *
 import asyncio
+import os
 import aiohttp
 import time
 import datetime
@@ -23,13 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 
 Session = sessionmaker()
-engine = create_engine("sqlite:///prodb.db")
 Session.configure(bind=engine)
-
-default_keyboards = {
-    "User": UndefinedKoala_keyboard,
-    "UndefinedKoala": phone_request_keyboard,
-}
 
 
 async def get_event_type(event):
@@ -74,6 +70,93 @@ async def get_user_state_from_text_commands(message):
         return "UndefinedKoala"
 
 
+class CardsGameState:
+    @staticmethod
+    async def commands_handler(message):
+        try:
+            if message["id"]:
+                command = message["data"]
+                if command.startswith("cards_game"): 
+                    await CardsGameState.check_answer(message)
+        except KeyError as error:
+            pass
+        try:
+            if message["message_id"]:
+                command = message["text"]
+        except KeyError as error:
+            pass
+        try:
+            await CardsGameState_commands[command](message)
+        except KeyError as error:
+            await message.answer(
+                f"Команда {command} не найдена, введи /exit, чтобы вернуться на начальный экран."
+            )
+
+    @staticmethod
+    async def check_answer(message): 
+        pass
+
+
+    @staticmethod
+    async def start(message):
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
+        )
+        await bot.send_message(
+            customer.id,
+            "Как играть?\n\nБот отправляет тебе карточку-картинку с изображением какого-либо предмета, а тебе нужно выбрать правильное название предмета на татарском языке.",
+            reply_markup=cards_game_keyboard,
+        )
+        await CardsGameState.send_card(message, True)
+
+    @staticmethod
+    async def send_card(message, is_first):
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
+        )
+        with open("cards/cards.json", "r", errors="ignore", encoding="utf-8") as file:
+            data = load(file)
+        card = choice(data)
+        answers = [
+            InlineKeyboardButton(
+                r_a := choice(all_answers), callback_data=f"cards_game_{r_a}"
+            )
+            for i in range(3)
+        ] + [InlineKeyboardButton(card["correct_answer"], callback_data=f"cards_game_{card['correct_answer']}")]
+        answers_keyboard = InlineKeyboardMarkup()
+        count = 0
+        for answer in answers:
+            if count == 2:
+                answers_keyboard.row()
+                count = 0
+            else:
+                answers_keyboard.insert(answer)
+        if is_first:
+            await bot.send_photo(
+                chat_id=customer.id,
+                photo=open(card["image_source"], "rb"),
+                reply_markup=answers_keyboard,
+            )
+
+        else: 
+            await bot.edit_message_media(
+                chat_id=customer.id,
+                message_id=customer.last_sended_message_id,
+                media=open(card["image_source"], "rb"),
+            )
+            await bot.edit_message_reply_markup(
+                customer.id,
+                customer.last_sended_message_id,
+                reply_markup=answers_keyboard,
+            )
+
+    @staticmethod
+    async def exit(message):
+        pass
+
+
 class LKState:
     @staticmethod
     async def start(message):
@@ -81,9 +164,9 @@ class LKState:
         customer = (
             session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
         )
-        customer.current_state = "LKState"
-        session.commit()
         if customer.phone_number:
+            customer.current_state = "LKState"
+            session.commit()
             await message.answer(
                 "Перейди по ссылке [ссылка], авторизуйся и введи код, который придёт тебе в этом чате"
             )
@@ -133,7 +216,7 @@ class MentoringState:
 
 class BaseState:
     @staticmethod
-    async def exit(message):
+    async def exit_to_main(message):
         session = Session()
         customer = (
             session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
@@ -232,15 +315,11 @@ class OnboardingState(BaseState):
         )
 
 
-class GameState:
-    pass
-
-
 class EducationState:
     pass
 
 
-class UndefinedKoala(BaseState):
+class UndefinedKoala:
     @staticmethod
     async def commands_handler(message):
         try:
@@ -273,6 +352,16 @@ class UndefinedKoala(BaseState):
         )
         customer.last_sended_message_id = last_message["message_id"]
         session.commit()
+
+    @staticmethod
+    async def start_cards_game_state(message):
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
+        )
+        customer.current_state = "CardsGameState"
+        session.commit()
+        await CardsGameState.start(message)
 
     @staticmethod
     async def cancel_onboarding_request(message):
@@ -346,6 +435,14 @@ class UndefinedKoala(BaseState):
         )
         await UndefinedKoala.send_onboarding_request(message)
 
+    @staticmethod
+    async def send_game_selection_request(message):
+        await bot.send_message(
+            message["from"]["id"],
+            "Выбери игру из списка ниже:",
+            reply_markup=games_keyboard,
+        )
+
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
@@ -370,16 +467,16 @@ async def get_contact(message):
 
 
 onboarding_steps = {
-    1: "😉 Отлично!\n\nСейчас я расскажу, из чего состоит бот и как им пользоваться.\n\nДля навигации используй кнопки < и >.",
-    2: "(1/3) Наш бот состоит из 4 разделов.\n\n- Изучать",
-    3: "(2/3)",
-    4: "(3/3)",
+    1: "😉 Отлично!\n\nСейчас я расскажу, из чего состоит бот и как им пользоваться. Для навигации используй кнопки < и >.",
+    2: "*[1/3]* Первым делом стоит изучать теорию, за каждый пройденный шаг теории ты получаешь очки, которые потом обмениваются на достижения и бонусы! 1 шаг = 1 очко.\n\nКроме того, после прохождения некоторых шагов ты получишь возможность решить задания, верно решенное задание = 5 очков.",
+    3: "*[2/3]* Теория уже надоела? Тогда сыграй в игры в одиночку или вместе с друзьями.\n\nЧтобы пригласить друга в игру, напиши в чат с другом @tatrikabot, выбери игру и начинай играть!",
+    4: "*[3/3]* А что делать, если у меня возник вопрос по учебным материалам или играм?\n\nСмело задавай их своему наставнику через кнопку Задать вопрос!",
 }
 
 OnboardingState_commands = {
     "next_onboarding_step": OnboardingState.set_next_onboarding_step,
     "prev_onboarding_step": OnboardingState.set_prev_onboarding_step,
-    "/exit": BaseState.exit,
+    "/exit": BaseState.exit_to_main,
 }
 
 
@@ -388,10 +485,18 @@ UndefinedKoala_commands = {
     "accept_onboarding_request": UndefinedKoala.accept_onboarding_request,
     "cancel_onboarding_request": UndefinedKoala.cancel_onboarding_request,
     "Изучать": 0,
-    "Играть": 0,
+    "Играть": UndefinedKoala.send_game_selection_request,
     "Задать вопрос": MentoringState.start,
     "Личный кабинет": LKState.start,
-    "/exit": BaseState.exit,
+    "/exit": BaseState.exit_to_main,
+    "Карточки": UndefinedKoala.start_cards_game_state,
+    "Слова": 0,
+}
+
+CardsGameState_commands = {
+    "Выйти из игры": CardsGameState.exit,
+    "Следующая карточка": CardsGameState.send_card,
+    "/exit": BaseState.exit_to_main,
 }
 
 
@@ -401,6 +506,7 @@ states = {
     "OnboardingState": OnboardingState,
     "MentoringState": MentoringState,
     "LKState": LKState,
+    "CardsGameState": CardsGameState,
 }
 
 

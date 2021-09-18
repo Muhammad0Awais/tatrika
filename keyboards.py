@@ -7,6 +7,13 @@ from aiogram.types import (
 )
 from sqlalchemy.sql.functions import user
 
+games_keyboard = ReplyKeyboardMarkup()
+cards_game_start_button = KeyboardButton("Карточки")
+words_game_start_button = KeyboardButton("Слова")
+games_keyboard.add(cards_game_start_button, words_game_start_button)
+
+
+
 phone_request_button = KeyboardButton("Поделиться номером", request_contact=True)
 cancel_phone_request_button = KeyboardButton("Не хочу")
 phone_request_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -52,5 +59,11 @@ next_prev_onboarding_keyboard = InlineKeyboardMarkup()
 next_prev_onboarding_keyboard.add(
     next_onboarding_step_button, prev_onboarding_step_button
 )
+
+
+cards_game_keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
+next_card_button = KeyboardButton("Следующее слово")
+exit_card_game_button = KeyboardButton("Выйти из игры")
+cards_game_keyboard.add(next_card_button, exit_card_game_button)
 
 empty_keyboard = ReplyKeyboardRemove()
