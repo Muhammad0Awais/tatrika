@@ -9,9 +9,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from aiogram.dispatcher import Dispatcher
 from config import TOKEN
 from aiogram.utils import executor
-from aiogram.types import reply_keyboard
+from aiogram.types import chat, reply_keyboard, InputMediaPhoto
 from aiogram.types.message import Message
-from random import choice
+from random import choice, shuffle, random
+from scripts import *
 from json import *
 from keyboards import *
 import asyncio
@@ -76,7 +77,8 @@ class CardsGameState:
         try:
             if message["id"]:
                 command = message["data"]
-                if command.startswith("cards_game"): 
+                print(command)
+                if command.startswith("cards_game"):
                     await CardsGameState.check_answer(message)
         except KeyError as error:
             pass
@@ -86,16 +88,34 @@ class CardsGameState:
         except KeyError as error:
             pass
         try:
-            await CardsGameState_commands[command](message)
+            if not isinstance(CardsGameState_commands[command], list):
+                await CardsGameState_commands[command](message)
+            else:
+                await CardsGameState_commands[command][0](
+                    message, CardsGameState_commands[command][1]
+                )
         except KeyError as error:
             await message.answer(
                 f"Команда {command} не найдена, введи /exit, чтобы вернуться на начальный экран."
             )
 
     @staticmethod
-    async def check_answer(message): 
-        pass
-
+    async def check_answer(message):
+        session = Session()
+        customer = (
+            session.query(Customer)
+            .filter(Customer.id == message["message"]["from"]["id"])
+            .first()
+        )
+        card = session.query(Card).filter(Card.id == Customer.current_word_id).first()
+        if card:
+            if card.correct_answer == message["data"].split("_")[2]:
+                await message.answer(
+                    f"😔 Правильно! {card.text} на татарском языке будет {card.correct_answer}"
+                )
+                await CardsGameState.send_card(message, is_first=False)
+            else:
+                await message.answer(f"😔 Неправильно, попробуй ещё раз!")
 
     @staticmethod
     async def start(message):
@@ -112,19 +132,30 @@ class CardsGameState:
 
     @staticmethod
     async def send_card(message, is_first):
+        answers = list()
         session = Session()
         customer = (
             session.query(Customer).filter(Customer.id == message["from"]["id"]).first()
         )
-        with open("cards/cards.json", "r", errors="ignore", encoding="utf-8") as file:
-            data = load(file)
-        card = choice(data)
+        current_card = choice(session.query(Card).all())
+        print(current_card)
+        customer.current_word_id = current_card.id
+        session.commit()
         answers = [
             InlineKeyboardButton(
-                r_a := choice(all_answers), callback_data=f"cards_game_{r_a}"
+                r_a := choice(
+                    [answer for answer in all_answers if answer != current_card.text]
+                ),
+                callback_data=f"cards_game_{r_a}",
             )
             for i in range(3)
-        ] + [InlineKeyboardButton(card["correct_answer"], callback_data=f"cards_game_{card['correct_answer']}")]
+        ] + [
+            InlineKeyboardButton(
+                current_card.correct_answer,
+                callback_data=f"cards_game_{current_card.correct_answer}",
+            )
+        ]
+        answers = sorted(answers, key=lambda el: random())
         answers_keyboard = InlineKeyboardMarkup()
         count = 0
         for answer in answers:
@@ -134,17 +165,29 @@ class CardsGameState:
             else:
                 answers_keyboard.insert(answer)
         if is_first:
-            await bot.send_photo(
+            sended_message = await bot.send_photo(
                 chat_id=customer.id,
-                photo=open(card["image_source"], "rb"),
+                photo=open(current_card.image_path, "rb"),
                 reply_markup=answers_keyboard,
             )
-
-        else: 
+            customer = (
+                session.query(Customer)
+                .filter(Customer.id == message["from"]["id"])
+                .first()
+            )
+            customer.last_sended_message_id = sended_message.message_id
+            session.commit()
+        else:
+            session = Session()
+            customer = (
+                session.query(Customer)
+                .filter(Customer.id == message["from"]["id"])
+                .first()
+            )
             await bot.edit_message_media(
                 chat_id=customer.id,
                 message_id=customer.last_sended_message_id,
-                media=open(card["image_source"], "rb"),
+                media=InputMediaPhoto(open(current_card.image_path, "rb")),
             )
             await bot.edit_message_reply_markup(
                 customer.id,
@@ -153,8 +196,18 @@ class CardsGameState:
             )
 
     @staticmethod
-    async def exit(message):
-        pass
+    async def exit_with_result(message):
+        session = Session()
+        customer = (
+            session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
+        )
+        customer.current_state = "UndefinedKoala"
+        await bot.send_message(
+            customer.id,
+            "Ты вышел из игры.\n\nРезультаты игровой сессии:",
+            reply_markup=UndefinedKoala_keyboard,
+        )
+        session.commit()
 
 
 class LKState:
@@ -165,8 +218,6 @@ class LKState:
             session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
         )
         if customer.phone_number:
-            customer.current_state = "LKState"
-            session.commit()
             await message.answer(
                 "Перейди по ссылке [ссылка], авторизуйся и введи код, который придёт тебе в этом чате"
             )
@@ -350,7 +401,6 @@ class UndefinedKoala:
         customer = (
             session.query(Customer).filter(Customer.id == message["chat"]["id"]).first()
         )
-        customer.last_sended_message_id = last_message["message_id"]
         session.commit()
 
     @staticmethod
@@ -494,9 +544,9 @@ UndefinedKoala_commands = {
 }
 
 CardsGameState_commands = {
-    "Выйти из игры": CardsGameState.exit,
-    "Следующая карточка": CardsGameState.send_card,
+    "Следующее слово": [CardsGameState.send_card, True],
     "/exit": BaseState.exit_to_main,
+    "Выйти из игры": CardsGameState.exit_with_result,
 }
 
 

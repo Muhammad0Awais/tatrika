@@ -27,9 +27,8 @@ class Customer(Base):
     default_state = Column(String(50), default="UndefinedKoala")
     last_sended_message_id = Column(Integer)
     onboarding_page = Column(Integer, default=1)
+    current_word_id = Column(String(50))
     questions = relationship("Question", backref="customer")
-    game_card = relationship("GameCard", backref="customer", uselist=False)
-
 
 class Question(Base):
     __tablename__ = "questions"
@@ -39,19 +38,18 @@ class Question(Base):
     created_date = Column(DateTime, default=datetime.datetime.utcnow)
     status = Column(String(50), default="unanswered")
 
-
-class GameCard(Base):
-    __tablename__ = "game_card"
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    id = Column(Integer, primary_key=True)
-
-
-class CardsGame(Base):
-    __tablename__ = "cards_game"
+class Card(Base):
+    __tablename__ = "card"
     id = Column(Integer, primary_key=True, autoincrement=True)
     correct_answer = Column(String(121))
-    answers = Column(DateTime, default=datetime.datetime.utcnow)
-    status = Column(String(50), default="unanswered")
+    text = Column(String(121)) 
+    image_path = Column(String(300))
+
+
+class Lesson(Base): 
+    __tablename__ = "lessons"
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    title = Column(String(300))
 
 
 cnx = {
@@ -64,7 +62,7 @@ cnx = {
 
 
 engine = create_engine(
-    "{connector}://{user}:{password}@{host}/{database}".format(**cnx)
+    "{connector}://{user}:{password}@{host}/{database}".format(**cnx), pool_size=20, max_overflow=0
 )
 
 Base.metadata.create_all(engine)
