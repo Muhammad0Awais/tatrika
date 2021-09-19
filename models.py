@@ -60,9 +60,10 @@ cnx = {
     "database": "a0560710_prod_db",
 }
 
+engine = create_engine("mysql+pymysql://a0560710:veipsaihfe@a0560710.xsph.ru/a0560710_prod_db")
 
-engine = create_engine(
-    "{connector}://{user}:{password}@{host}/{database}".format(**cnx), pool_size=20, max_overflow=0
-)
+# engine = create_engine(
+#     "{connector}://{user}:{password}@{host}/{database}".format(**cnx), pool_size=20, max_overflow=0
+# )
 
 Base.metadata.create_all(engine)
